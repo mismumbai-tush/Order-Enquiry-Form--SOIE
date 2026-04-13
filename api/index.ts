@@ -160,9 +160,22 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
 
 // Helper to parse Google Credentials safely
 function getGoogleCredentials() {
+  // Method 1: Individual environment variables (More reliable in some environments)
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
+  // If we have both individual components and the key doesn't look like JSON
+  if (clientEmail && privateKey && !privateKey.trim().startsWith('{')) {
+    return {
+      client_email: clientEmail.trim(),
+      private_key: privateKey.trim().replace(/\\n/g, '\n'),
+    };
+  }
+
+  // Method 2: Full JSON string
   let authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!authKeyStr) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is missing. Please add it to Vercel environment variables.");
+    throw new Error("Google credentials missing. Please provide GOOGLE_SERVICE_ACCOUNT_KEY (JSON) OR GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY.");
   }
 
   // Check if it's base64 encoded and clean it
@@ -192,6 +205,13 @@ function getGoogleCredentials() {
     }
     
     if (!credentials.client_email || !credentials.private_key) {
+      // If JSON is invalid but we have individual variables, try those as last resort
+      if (clientEmail && privateKey) {
+         return {
+           client_email: clientEmail.trim(),
+           private_key: privateKey.trim().replace(/\\n/g, '\n'),
+         };
+      }
       throw new Error("Credentials JSON is missing 'client_email' or 'private_key'.");
     }
     
@@ -199,6 +219,14 @@ function getGoogleCredentials() {
   } catch (e: any) {
     if (e.message.includes("Credentials JSON is missing")) throw e;
     
+    // Last ditch effort: maybe the key itself IS the private key and we have the email
+    if (clientEmail && authKeyStr && !authKeyStr.startsWith('{')) {
+      return {
+        client_email: clientEmail.trim(),
+        private_key: authKeyStr.trim().replace(/\\n/g, '\n'),
+      };
+    }
+
     const firstChars = authKeyStr.substring(0, 30).replace(/\n/g, '\\n');
     const charCodes = Array.from(authKeyStr.substring(0, 5)).map(c => c.charCodeAt(0)).join(', ');
     
