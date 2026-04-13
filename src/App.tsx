@@ -365,6 +365,7 @@ function SupplierResponseForm() {
   });
 
   useEffect(() => {
+    console.log("Fetching enquiry for ID:", id);
     fetch(`/api/enquiry/${id}`)
       .then(res => res.json())
       .then(data => {
@@ -383,6 +384,7 @@ function SupplierResponseForm() {
           deliveryTime: data.deliveryTime || '',
           remark: data.remark || ''
         });
+        console.log("Form data prefilled from enquiry:", data);
       })
       .catch(err => console.error(err))
       .finally(() => setLoading(false));

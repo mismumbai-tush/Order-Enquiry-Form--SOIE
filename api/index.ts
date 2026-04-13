@@ -140,8 +140,13 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
       <tr><td>Finish</td><td>${details.finish}</td></tr>
       <tr><td>Description</td><td>${details.description}</td></tr>
     </table>
-    <p><strong>Supplier Response Link:</strong> <a href="${supplierLink}">${supplierLink}</a></p>
-    <p><strong>Dashboard Link:</strong> <a href="${dashboardLink}">${dashboardLink}</a></p>
+    <p style="margin-top: 20px; padding: 15px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; text-align: center;">
+      <strong style="display: block; margin-bottom: 10px; color: #166534;">ACTION REQUIRED: Supplier Response</strong>
+      <a href="${supplierLink}" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; font-weight: bold; border-radius: 6px;">Open Response Form</a>
+    </p>
+    <p style="font-size: 12px; color: #64748b; margin-top: 20px;">
+      <strong>Dashboard Link:</strong> <a href="${dashboardLink}">${dashboardLink}</a>
+    </p>
   `;
 
   await transporter.sendMail({
@@ -252,7 +257,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
       "Customer Name", "Article Number", "Color", "Quantity", "Width / Size", 
       "Composition", "GSM", "Finish", "Description", "Attachment", 
       "Supplier Response Link", 
-      "S.Supplier Name", "S.Article Number", "S.Composition", "S.GSM", "S.MOQ", "S.MCQ", "S.Finish", "S.Width / Size", "S.Price", "S.Delivery Time", "S.Remark"
+      "Supplier Name", "Article Number", "Composition", "GSM", "MOQ", "MCQ", "Finish", "Width / Size", "Price", "Delivery Time", "Remark"
     ];
 
     if (!sheetExists) {
