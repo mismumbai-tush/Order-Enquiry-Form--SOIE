@@ -231,7 +231,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
         try {
           const fileMetadata = {
             name: `${enquiryId}_${file.name}`,
-            parents: ['189Pija_UUwKB5vbda2xMhzKPXvqVuF5F'], // Specific folder ID
+            parents: ['1s7CfBnpuuxQ2cIzLqAZ9ss9Z5goMCZ_4'], // New Shared Drive folder ID
           };
           const media = {
             mimeType: file.type,
@@ -252,7 +252,8 @@ app.post("/api/submit-enquiry", async (req, res) => {
                 role: 'reader',
                 type: 'anyone',
               },
-            });
+              supportsAllDrives: true,
+            } as any);
           } catch (permErr) {
             console.warn("Could not set public permissions:", permErr);
           }
@@ -260,7 +261,11 @@ app.post("/api/submit-enquiry", async (req, res) => {
           uploadedLinks.push(driveFile.data.webViewLink || `https://drive.google.com/file/d/${driveFile.data.id}/view`);
         } catch (uploadErr: any) {
           console.error("File upload failed:", uploadErr);
-          uploadedLinks.push(`Error: ${file.name} (${uploadErr.message})`);
+          let errorMsg = uploadErr.message;
+          if (errorMsg.includes("storage quota")) {
+            errorMsg = "Service Account storage quota exceeded. IMPORTANT: Please move the destination folder to a 'Shared Drive' (Team Drive) and add the Service Account as a member to it.";
+          }
+          uploadedLinks.push(`Error: ${file.name} (${errorMsg})`);
         }
       }
     }
