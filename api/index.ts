@@ -7,6 +7,7 @@ import { OAuth2Client } from "google-auth-library";
 import cookieSession from "cookie-session";
 import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
+import { Readable } from "stream";
 
 const app = express();
 
@@ -191,7 +192,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
           };
           const media = {
             mimeType: file.type,
-            body: Buffer.from(file.content, 'base64'),
+            body: Readable.from(Buffer.from(file.content, 'base64')),
           };
           const driveFile = await drive.files.create({
             requestBody: fileMetadata,
@@ -200,18 +201,22 @@ app.post("/api/submit-enquiry", async (req, res) => {
           });
           
           // Make file public
-          await drive.permissions.create({
-            fileId: driveFile.data.id!,
-            requestBody: {
-              role: 'reader',
-              type: 'anyone',
-            },
-          });
+          try {
+            await drive.permissions.create({
+              fileId: driveFile.data.id!,
+              requestBody: {
+                role: 'reader',
+                type: 'anyone',
+              },
+            });
+          } catch (permErr) {
+            console.warn("Could not set public permissions:", permErr);
+          }
           
-          uploadedLinks.push(driveFile.data.webViewLink);
-        } catch (uploadErr) {
+          uploadedLinks.push(driveFile.data.webViewLink || `https://drive.google.com/file/d/${driveFile.data.id}/view`);
+        } catch (uploadErr: any) {
           console.error("File upload failed:", uploadErr);
-          uploadedLinks.push(`Error uploading: ${file.name}`);
+          uploadedLinks.push(`Error: ${file.name} (${uploadErr.message})`);
         }
       }
     }
@@ -262,7 +267,13 @@ app.post("/api/submit-enquiry", async (req, res) => {
     }
 
     const istTimestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-    const attachmentLinks = uploadedLinks.join(", ") || "";
+    const attachmentLinks = uploadedLinks.map(link => {
+      if (link.startsWith('http')) {
+        return `=HYPERLINK("${link}", "View Attachment")`;
+      }
+      return link;
+    }).join(", ") || "";
+    
     const rowData = [
       enquiryId, 
       istTimestamp, 

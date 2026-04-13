@@ -413,8 +413,13 @@ function SupplierResponseForm() {
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200">
-        <h1 className="text-2xl font-bold mb-6 text-slate-900 border-b pb-4">Supplier Response Form</h1>
+      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 border-t-emerald-500 border-t-4">
+        <div className="flex justify-between items-center mb-6 border-b pb-4">
+          <h1 className="text-2xl font-bold text-slate-900">Supplier Response Form</h1>
+          <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200">
+            SUPPLIER PORTAL
+          </span>
+        </div>
         
         {status === 'success' ? (
           <div className="text-center py-12">
