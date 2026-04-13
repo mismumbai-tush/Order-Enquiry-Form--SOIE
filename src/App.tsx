@@ -428,7 +428,61 @@ function SupplierResponseForm() {
             <p className="text-slate-600">Thank you for your response.</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-8">
+            {/* Read-only Enquiry Details */}
+            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-4">
+              <h3 className="font-bold text-slate-800 border-b pb-2 flex items-center">
+                <FileText className="w-4 h-4 mr-2 text-indigo-500" />
+                Enquiry Details
+              </h3>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <p><span className="text-slate-500">Date:</span> {enquiry.date}</p>
+                <p><span className="text-slate-500">Type:</span> {enquiry.enquiryType}</p>
+                <p><span className="text-slate-500">Customer:</span> {enquiry.customerName}</p>
+                <p><span className="text-slate-500">Article #:</span> {enquiry.articleNumber}</p>
+                <p><span className="text-slate-500">Color:</span> {enquiry.color}</p>
+                <p><span className="text-slate-500">Quantity:</span> {enquiry.quantity}</p>
+                <p><span className="text-slate-500">Width/Size:</span> {enquiry.widthSize}</p>
+                <p><span className="text-slate-500">Composition:</span> {enquiry.composition}</p>
+                <p><span className="text-slate-500">GSM:</span> {enquiry.gsm}</p>
+                <p><span className="text-slate-500">Finish:</span> {enquiry.finish}</p>
+              </div>
+              {enquiry.attachments && (
+                <div className="pt-2 border-t mt-2">
+                  <p className="text-xs text-slate-500 mb-1 font-semibold uppercase">Attachments</p>
+                  <div className="flex flex-wrap gap-2">
+                    {enquiry.attachments.split(',').map((link: string, i: number) => {
+                      const cleanLink = link.includes('=HYPERLINK') 
+                        ? link.match(/"([^"]+)"/)?.[1] 
+                        : link.trim();
+                      return (
+                        <a 
+                          key={i} 
+                          href={cleanLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                        >
+                          View File {i + 1}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {enquiry.description && (
+                <div className="pt-2 border-t mt-2">
+                  <p className="text-xs text-slate-500 mb-1 font-semibold uppercase">Description</p>
+                  <p className="text-sm text-slate-700">{enquiry.description}</p>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <h3 className="font-bold text-slate-800 flex items-center pt-4">
+                <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />
+                Your Response
+              </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Supplier Name</label>
@@ -487,6 +541,7 @@ function SupplierResponseForm() {
               {status === 'loading' ? 'Submitting...' : 'Submit Response'}
             </button>
           </form>
+        </div>
         )}
       </div>
     </div>
