@@ -104,7 +104,7 @@ function getSpreadsheetId(idOrUrl: string): string {
 }
 
 // Helper to send email
-async function sendNotificationEmail(details: any, employeeEmail: string, enquiryId: string) {
+async function sendNotificationEmail(details: any, employeeEmail: string, enquiryId: string, tabName: string) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.warn("Email configuration missing. Skipping email.");
     return;
@@ -145,10 +145,10 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
   `;
 
   await transporter.sendMail({
-    from: `"${details.customerName || 'Enquiry System'}" <${process.env.SMTP_USER}>`,
+    from: `"${tabName} ${process.env.SMTP_USER}" <${process.env.SMTP_USER}>`,
     to: 'patilyog345@gmail.com',
     replyTo: employeeEmail,
-    subject: `New Enquiry Submission - ${details.customerName}`,
+    subject: `New Enquiry Submission - ${tabName}`,
     html: htmlContent,
   });
 }
@@ -199,7 +199,8 @@ app.post("/api/submit-enquiry", async (req, res) => {
             requestBody: fileMetadata,
             media: media,
             fields: 'id, webViewLink',
-          });
+            supportsAllDrives: true,
+          } as any);
           
           // Make file public
           try {
@@ -250,7 +251,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
       "ID", "Timestamp", "Date", "Email Address", "Type of Enquiry", "Name of Supplier", 
       "Customer Name", "Article Number", "Color", "Quantity", "Width / Size", 
       "Composition", "GSM", "Finish", "Description", "Attachment", 
-      "", // Q column empty
+      "Supplier Response Link", 
       "S.Supplier Name", "S.Article Number", "S.Composition", "S.GSM", "S.MOQ", "S.MCQ", "S.Finish", "S.Width / Size", "S.Price", "S.Delivery Time", "S.Remark"
     ];
 
@@ -275,6 +276,9 @@ app.post("/api/submit-enquiry", async (req, res) => {
       return link;
     }).join(", ") || "";
     
+    const baseUrl = "https://order-enquiry-form-soie.vercel.app";
+    const supplierLink = `${baseUrl}/supplier-response/${enquiryId}`;
+
     const rowData = [
       enquiryId, 
       istTimestamp, 
@@ -291,19 +295,20 @@ app.post("/api/submit-enquiry", async (req, res) => {
       gsm, 
       finish, 
       description, 
-      attachmentLinks
+      attachmentLinks,
+      `=HYPERLINK("${supplierLink}", "Open Response Form")`
     ];
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `'${tabName}'!A:P`,
+      range: `'${tabName}'!A:Q`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [rowData] },
     });
 
     // Send Email
     try {
-      await sendNotificationEmail(req.body, emailToLog, enquiryId);
+      await sendNotificationEmail(req.body, emailToLog, enquiryId, tabName);
     } catch (emailError) {
       console.error("Email failed but data saved:", emailError);
     }
