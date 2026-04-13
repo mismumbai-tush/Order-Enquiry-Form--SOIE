@@ -165,10 +165,18 @@ function getGoogleCredentials() {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is missing. Please add it to Vercel environment variables.");
   }
 
-  // Check if it's base64 encoded
-  if (!authKeyStr.trim().startsWith('{')) {
+  // Check if it's base64 encoded and clean it
+  authKeyStr = authKeyStr.trim();
+  
+  // Remove any potential Byte Order Mark (BOM) or non-printable characters at the start
+  authKeyStr = authKeyStr.replace(/^\uFEFF/, '').replace(/^[^\x20-\x7E]+/, '');
+
+  if (!authKeyStr.startsWith('{')) {
     try {
-      authKeyStr = Buffer.from(authKeyStr, 'base64').toString();
+      const decoded = Buffer.from(authKeyStr, 'base64').toString('utf8');
+      if (decoded.trim().startsWith('{')) {
+        authKeyStr = decoded.trim();
+      }
     } catch (e) {
       // Not base64, continue
     }
@@ -191,8 +199,10 @@ function getGoogleCredentials() {
   } catch (e: any) {
     if (e.message.includes("Credentials JSON is missing")) throw e;
     
-    // If direct parse fails, it might be a base64 encoded string or have other issues
-    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY: ${e.message}. Ensure it is a valid JSON string. If you are pasting from a file, make sure to include the curly braces {}.`);
+    const firstChars = authKeyStr.substring(0, 30).replace(/\n/g, '\\n');
+    const charCodes = Array.from(authKeyStr.substring(0, 5)).map(c => c.charCodeAt(0)).join(', ');
+    
+    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY: ${e.message}. The key starts with: "${firstChars}..." (Char codes: ${charCodes}). Ensure you pasted the FULL JSON content starting with { and ending with }.`);
   }
 }
 
