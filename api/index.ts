@@ -118,8 +118,8 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
     },
   });
 
-  // Use Vercel URL for links as requested
-  const baseUrl = "https://order-enquiry-form-soie.vercel.app";
+  // Use dynamic URL from env or fallback
+  const baseUrl = process.env.APP_URL || "https://order-enquiry-form-soie.vercel.app";
   const supplierLink = `${baseUrl}/supplier-response/${enquiryId}`;
   const dashboardLink = "https://docs.google.com/spreadsheets/d/1JP1tkeyW314TC5wn8yAQ504D745yx5XwgnY72TqSTDo/edit";
 
@@ -158,6 +158,44 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
   });
 }
 
+// Helper to parse Google Credentials safely
+function getGoogleCredentials() {
+  let authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  if (!authKeyStr) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is missing. Please add it to Vercel environment variables.");
+  }
+
+  // Check if it's base64 encoded
+  if (!authKeyStr.trim().startsWith('{')) {
+    try {
+      authKeyStr = Buffer.from(authKeyStr, 'base64').toString();
+    } catch (e) {
+      // Not base64, continue
+    }
+  }
+
+  try {
+    // Try parsing directly
+    const credentials = JSON.parse(authKeyStr);
+    
+    // Fix private key newlines if they are escaped as literal "\n"
+    if (credentials.private_key && typeof credentials.private_key === 'string') {
+      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+    }
+    
+    if (!credentials.client_email || !credentials.private_key) {
+      throw new Error("Credentials JSON is missing 'client_email' or 'private_key'.");
+    }
+    
+    return credentials;
+  } catch (e: any) {
+    if (e.message.includes("Credentials JSON is missing")) throw e;
+    
+    // If direct parse fails, it might be a base64 encoded string or have other issues
+    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY: ${e.message}. Ensure it is a valid JSON string. If you are pasting from a file, make sure to include the curly braces {}.`);
+  }
+}
+
 // Submit Enquiry
 app.post("/api/submit-enquiry", async (req, res) => {
   const { 
@@ -174,9 +212,8 @@ app.post("/api/submit-enquiry", async (req, res) => {
   const enquiryId = uuidv4();
 
   try {
-    const authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    if (!authKeyStr) throw new Error("Key missing");
-    const credentials = JSON.parse(authKeyStr);
+    const credentials = getGoogleCredentials();
+
     const auth = new google.auth.GoogleAuth({ 
       credentials, 
       scopes: [
@@ -281,7 +318,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
       return link;
     }).join(", ") || "";
     
-    const baseUrl = "https://order-enquiry-form-soie.vercel.app";
+    const baseUrl = process.env.APP_URL || "https://order-enquiry-form-soie.vercel.app";
     const supplierLink = `${baseUrl}/supplier-response/${enquiryId}`;
 
     const rowData = [
@@ -336,9 +373,7 @@ app.get("/api/enquiry/:id", async (req, res) => {
   const spreadsheetId = getSpreadsheetId(rawSpreadsheetId);
   
   try {
-    const authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    if (!authKeyStr) throw new Error("Key missing");
-    const credentials = JSON.parse(authKeyStr);
+    const credentials = getGoogleCredentials();
     const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
     const sheets = google.sheets({ version: "v4", auth });
 
@@ -400,9 +435,7 @@ app.post("/api/update-enquiry", async (req, res) => {
   const spreadsheetId = getSpreadsheetId(rawSpreadsheetId);
 
   try {
-    const authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    if (!authKeyStr) throw new Error("Key missing");
-    const credentials = JSON.parse(authKeyStr);
+    const credentials = getGoogleCredentials();
     const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
     const sheets = google.sheets({ version: "v4", auth });
 

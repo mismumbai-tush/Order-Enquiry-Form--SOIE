@@ -349,6 +349,7 @@ function SupplierResponseForm() {
   const { id } = useParams();
   const [enquiry, setEnquiry] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [formData, setFormData] = useState({
     supplierName: '',
@@ -367,9 +368,12 @@ function SupplierResponseForm() {
   useEffect(() => {
     console.log("Fetching enquiry for ID:", id);
     fetch(`/api/enquiry/${id}`)
-      .then(res => res.json())
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch enquiry');
+        return data;
+      })
       .then(data => {
-        if (data.error) throw new Error(data.error);
         setEnquiry(data);
         setFormData({
           supplierName: data.supplierName || '',
@@ -384,9 +388,11 @@ function SupplierResponseForm() {
           deliveryTime: data.deliveryTime || '',
           remark: data.remark || ''
         });
-        console.log("Form data prefilled from enquiry:", data);
       })
-      .catch(err => console.error(err))
+      .catch(err => {
+        console.error("Fetch error:", err);
+        setError(err.message);
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -410,142 +416,193 @@ function SupplierResponseForm() {
     }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 text-indigo-600 animate-spin" /></div>;
+  
+  if (error) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <div className="bg-white p-8 rounded-2xl shadow-xl border border-red-200 max-w-md w-full text-center">
+        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Error Loading Enquiry</h2>
+        <p className="text-slate-600 mb-6">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="w-full py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+  );
+
   if (!enquiry) return <div className="min-h-screen flex items-center justify-center text-red-500">Enquiry not found or expired.</div>;
 
   return (
-    <div className="max-w-2xl mx-auto py-12 px-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 border-t-emerald-500 border-t-4">
-        <div className="flex justify-between items-center mb-6 border-b pb-4">
-          <h1 className="text-2xl font-bold text-slate-900">Supplier Response Form</h1>
+    <div className="max-w-2xl mx-auto">
+      {/* Header Image */}
+      <div className="w-full h-36 rounded-t-xl overflow-hidden shadow-sm mb-0 border border-slate-200 border-b-0 relative group bg-emerald-50">
+        <img 
+          src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070&auto=format&fit=crop" 
+          alt="Supplier Portal Header" 
+          referrerPolicy="no-referrer"
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-80"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      </div>
+
+      {/* Header Card */}
+      <div className="bg-white rounded-b-xl shadow-sm border-t-0 overflow-hidden mb-6 border border-slate-200 border-t-emerald-500 border-t-4">
+        <div className="p-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 mb-1">Supplier Response Form</h1>
+            <p className="text-sm text-slate-500">Please provide your quote and details for this enquiry.</p>
+          </div>
           <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200">
             SUPPLIER PORTAL
           </span>
         </div>
+      </div>
         
-        {status === 'success' ? (
-          <div className="text-center py-12">
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold">Response Submitted!</h2>
-            <p className="text-slate-600">Thank you for your response.</p>
+      {status === 'success' ? (
+        <motion.div 
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white p-10 rounded-xl shadow-sm text-center border border-slate-200"
+        >
+          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
           </div>
-        ) : (
-          <div className="space-y-8">
-            {/* Read-only Enquiry Details */}
-            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-4">
-              <h3 className="font-bold text-slate-800 border-b pb-2 flex items-center">
-                <FileText className="w-4 h-4 mr-2 text-indigo-500" />
-                Enquiry Details
-              </h3>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <p><span className="text-slate-500">Date:</span> {enquiry.date}</p>
-                <p><span className="text-slate-500">Type:</span> {enquiry.enquiryType}</p>
-                <p><span className="text-slate-500">Customer:</span> {enquiry.customerName}</p>
-                <p><span className="text-slate-500">Article #:</span> {enquiry.articleNumber}</p>
-                <p><span className="text-slate-500">Color:</span> {enquiry.color}</p>
-                <p><span className="text-slate-500">Quantity:</span> {enquiry.quantity}</p>
-                <p><span className="text-slate-500">Width/Size:</span> {enquiry.widthSize}</p>
-                <p><span className="text-slate-500">Composition:</span> {enquiry.composition}</p>
-                <p><span className="text-slate-500">GSM:</span> {enquiry.gsm}</p>
-                <p><span className="text-slate-500">Finish:</span> {enquiry.finish}</p>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Response Submitted!</h2>
+          <p className="text-slate-600 mb-4 leading-relaxed">Thank you for your response. The details have been updated in the master sheet.</p>
+        </motion.div>
+      ) : (
+        <div className="space-y-4 pb-12">
+          {/* Read-only Enquiry Details */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h3 className="font-bold text-slate-800 border-b pb-2 flex items-center">
+              <FileText className="w-4 h-4 mr-2 text-indigo-500" />
+              Original Enquiry Details
+            </h3>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <p><span className="text-slate-500 font-medium">Date:</span> {enquiry.date}</p>
+              <p><span className="text-slate-500 font-medium">Type:</span> {enquiry.enquiryType}</p>
+              <p><span className="text-slate-500 font-medium">Customer:</span> {enquiry.customerName}</p>
+              <p><span className="text-slate-500 font-medium">Article #:</span> {enquiry.articleNumber}</p>
+              <p><span className="text-slate-500 font-medium">Color:</span> {enquiry.color}</p>
+              <p><span className="text-slate-500 font-medium">Quantity:</span> {enquiry.quantity}</p>
+              <p><span className="text-slate-500 font-medium">Width/Size:</span> {enquiry.widthSize}</p>
+              <p><span className="text-slate-500 font-medium">Composition:</span> {enquiry.composition}</p>
+              <p><span className="text-slate-500 font-medium">GSM:</span> {enquiry.gsm}</p>
+              <p><span className="text-slate-500 font-medium">Finish:</span> {enquiry.finish}</p>
+            </div>
+            {enquiry.attachments && (
+              <div className="pt-3 border-t mt-2">
+                <p className="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wider">Attachments</p>
+                <div className="flex flex-wrap gap-2">
+                  {enquiry.attachments.split(',').map((link: string, i: number) => {
+                    const cleanLink = link.includes('=HYPERLINK') 
+                      ? link.match(/"([^"]+)"/)?.[1] 
+                      : link.trim();
+                    return (
+                      <a 
+                        key={i} 
+                        href={cleanLink} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                      >
+                        <Paperclip className="w-3 h-3 mr-1.5" />
+                        View File {i + 1}
+                      </a>
+                    );
+                  })}
+                </div>
               </div>
-              {enquiry.attachments && (
-                <div className="pt-2 border-t mt-2">
-                  <p className="text-xs text-slate-500 mb-1 font-semibold uppercase">Attachments</p>
-                  <div className="flex flex-wrap gap-2">
-                    {enquiry.attachments.split(',').map((link: string, i: number) => {
-                      const cleanLink = link.includes('=HYPERLINK') 
-                        ? link.match(/"([^"]+)"/)?.[1] 
-                        : link.trim();
-                      return (
-                        <a 
-                          key={i} 
-                          href={cleanLink} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                        >
-                          View File {i + 1}
-                        </a>
-                      );
-                    })}
-                  </div>
+            )}
+            {enquiry.description && (
+              <div className="pt-3 border-t mt-2">
+                <p className="text-xs text-slate-500 mb-1 font-semibold uppercase tracking-wider">Description</p>
+                <p className="text-sm text-slate-700 leading-relaxed">{enquiry.description}</p>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+              <h3 className="font-bold text-slate-800 flex items-center mb-4">
+                <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />
+                Your Response Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Supplier Name</label>
+                  <input type="text" name="supplierName" value={formData.supplierName} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
                 </div>
-              )}
-              {enquiry.description && (
-                <div className="pt-2 border-t mt-2">
-                  <p className="text-xs text-slate-500 mb-1 font-semibold uppercase">Description</p>
-                  <p className="text-sm text-slate-700">{enquiry.description}</p>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Article Number</label>
+                  <input type="text" name="articleNumber" value={formData.articleNumber} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
                 </div>
-              )}
+              </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <h3 className="font-bold text-slate-800 flex items-center pt-4">
-                <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />
-                Your Response
-              </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Supplier Name</label>
-                <input type="text" name="supplierName" value={formData.supplierName} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Composition</label>
+                <input type="text" name="composition" value={formData.composition} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Article Number</label>
-                <input type="text" name="articleNumber" value={formData.articleNumber} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">GSM</label>
+                <input type="text" name="gsm" value={formData.gsm} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Composition</label>
-                <input type="text" name="composition" value={formData.composition} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">MOQ</label>
+                <input type="text" name="moq" required value={formData.moq} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">GSM</label>
-                <input type="text" name="gsm" value={formData.gsm} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">MCQ</label>
+                <input type="text" name="mcq" required value={formData.mcq} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">MOQ</label>
-                <input type="text" name="moq" required value={formData.moq} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Finish</label>
+                <input type="text" name="finish" value={formData.finish} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">MCQ</label>
-                <input type="text" name="mcq" required value={formData.mcq} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Width / Size</label>
+                <input type="text" name="widthSize" value={formData.widthSize} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Finish</label>
-                <input type="text" name="finish" value={formData.finish} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Price</label>
+                <input type="text" name="price" required value={formData.price} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Width / Size</label>
-                <input type="text" name="widthSize" value={formData.widthSize} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Price</label>
-                <input type="text" name="price" required value={formData.price} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Delivery Time</label>
-                <input type="date" name="deliveryTime" required value={formData.deliveryTime} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500" />
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Delivery Time</label>
+                <input type="date" name="deliveryTime" required value={formData.deliveryTime} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Remark</label>
-              <textarea name="remark" rows={3} value={formData.remark} onChange={handleChange} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 resize-none" />
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Remark</label>
+              <textarea name="remark" rows={3} value={formData.remark} onChange={handleChange} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-none" />
             </div>
-            <button type="submit" disabled={status === 'loading'} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all">
-              {status === 'loading' ? 'Submitting...' : 'Submit Response'}
+
+            <button type="submit" disabled={status === 'loading'} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+              {status === 'loading' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              Submit Response
             </button>
           </form>
         </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
