@@ -189,6 +189,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
         try {
           const fileMetadata = {
             name: `${enquiryId}_${file.name}`,
+            parents: ['189Pija_UUwKB5vbda2xMhzKPXvqVuF5F'], // Specific folder ID
           };
           const media = {
             mimeType: file.type,
