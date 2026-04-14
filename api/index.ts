@@ -8,6 +8,7 @@ import cookieSession from "cookie-session";
 import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import { Readable } from "stream";
+import crypto from "crypto";
 
 const app = express();
 
@@ -43,6 +44,39 @@ app.get("/api/health", (req, res) => {
     hasServiceKey: !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY,
     hasEmailConfig: !!(process.env.SMTP_USER && process.env.SMTP_PASS)
   });
+});
+
+app.get("/api/test-google-auth", async (req, res) => {
+  try {
+    const credentials = getGoogleCredentials();
+    const spreadsheetId = getSpreadsheetId(process.env.GOOGLE_SHEET_ID || "");
+    
+    if (!spreadsheetId) {
+      return res.json({ success: false, message: "GOOGLE_SHEET_ID is missing" });
+    }
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    });
+    
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.get({ spreadsheetId });
+    
+    res.json({ 
+      success: true, 
+      message: "Google Auth successful!", 
+      spreadsheetTitle: response.data.properties?.title,
+      emailUsed: credentials.client_email
+    });
+  } catch (error: any) {
+    console.error("[Test Auth Error]", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
 });
 
 // Auth Routes
@@ -141,7 +175,7 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
       <tr><td>Description</td><td>${details.description}</td></tr>
     </table>
     <p style="margin-top: 20px; padding: 15px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; text-align: center;">
-      <strong style="display: block; margin-bottom: 10px; color: #166534;">ACTION REQUIRED: Supplier Response</strong>
+      <strong style="display: block; margin-bottom: 10px; color: #166534;">ACTION REQUIRED: Response Form </strong>
       <a href="${supplierLink}" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; font-weight: bold; border-radius: 6px;">Open Response Form</a>
     </p>
     <p style="font-size: 12px; color: #64748b; margin-top: 20px;">
@@ -160,30 +194,107 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
 
 // Helper to parse Google Credentials safely
 function getGoogleCredentials() {
-  // Method 1: Individual environment variables (More reliable in some environments)
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const privateKeyVar = process.env.GOOGLE_PRIVATE_KEY;
+  const fullKeyVar = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
 
-  // If we have both individual components and the key doesn't look like JSON
-  if (clientEmail && privateKey && !privateKey.trim().startsWith('{')) {
-    return {
-      client_email: clientEmail.trim(),
-      private_key: privateKey.trim().replace(/\\n/g, '\n'),
-    };
+  const cleanKey = (key: string) => {
+    if (!key) return "";
+    let cleaned = key.trim();
+    
+    // 1. Remove surrounding quotes (handle multiple layers)
+    while ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+      cleaned = cleaned.substring(1, cleaned.length - 1).trim();
+    }
+
+    // 2. Handle escaped characters (literal \n, \r, \t)
+    cleaned = cleaned.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+    
+    // 3. Handle potential base64 encoded input (JSON or PEM)
+    if (!cleaned.includes('-----BEGIN') && !cleaned.includes('\n') && !cleaned.includes(' ') && cleaned.length > 100) {
+      try {
+        const decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+        if (decoded.includes('-----BEGIN') || decoded.trim().startsWith('{')) {
+          cleaned = decoded.trim();
+        }
+      } catch (e) { /* Not base64 */ }
+    }
+
+    // 4. If it's a JSON string, try to extract the private_key field
+    if (cleaned.startsWith('{')) {
+      try {
+        const json = JSON.parse(cleaned);
+        if (json.private_key) cleaned = json.private_key;
+        else if (json.key) cleaned = json.key;
+      } catch (e) { /* ignore */ }
+    }
+
+    // 5. Extract the PEM part if there's extra text around it
+    const pemMatch = cleaned.match(/-----BEGIN [^-]+-----[\s\S]+-----END [^-]+-----/);
+    if (pemMatch) {
+      cleaned = pemMatch[0];
+    }
+
+    // 6. Normalize headers and body (Wrap at 64 chars for maximum compatibility)
+    if (cleaned.includes('-----BEGIN')) {
+      const headerMatch = cleaned.match(/-----BEGIN [^-]+-----/);
+      const footerMatch = cleaned.match(/-----END [^-]+-----/);
+      
+      if (headerMatch && footerMatch) {
+        const header = headerMatch[0];
+        const footer = footerMatch[0];
+        const startIndex = cleaned.indexOf(header) + header.length;
+        const endIndex = cleaned.indexOf(footer);
+        
+        if (endIndex > startIndex) {
+          // Remove all whitespace from the body part
+          const body = cleaned.substring(startIndex, endIndex).replace(/\s/g, '');
+          // Wrap body at 64 characters
+          const wrappedBody = body.match(/.{1,64}/g)?.join('\n') || body;
+          cleaned = `${header}\n${wrappedBody}\n${footer}`;
+        }
+      }
+    } else if (cleaned.length > 100) {
+      // No headers, assume it's just the base64 body
+      const body = cleaned.replace(/\s/g, '');
+      const wrappedBody = body.match(/.{1,64}/g)?.join('\n') || body;
+      cleaned = `-----BEGIN PRIVATE KEY-----\n${wrappedBody}\n-----END PRIVATE KEY-----`;
+    }
+    
+    return cleaned;
+  };
+
+  // Method 1: Individual environment variables (Preferred for Vercel)
+  if (clientEmail || privateKeyVar) {
+    if (clientEmail && privateKeyVar) {
+      const cleanedKey = cleanKey(privateKeyVar);
+      
+      // Validate key format early
+      try {
+        crypto.createPrivateKey(cleanedKey);
+      } catch (e: any) {
+        console.error(`[Google Auth] Private key validation failed (Method 1): ${e.message}`);
+      }
+
+      return {
+        client_email: clientEmail.trim(),
+        private_key: cleanedKey,
+      };
+    }
+    console.warn(`[Google Auth] Partial credentials provided. Email: ${!!clientEmail}, Key: ${!!privateKeyVar}. Falling back to GOOGLE_SERVICE_ACCOUNT_KEY.`);
   }
 
   // Method 2: Full JSON string
-  let authKeyStr = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!authKeyStr) {
+  if (!fullKeyVar) {
     throw new Error("Google credentials missing. Please provide GOOGLE_SERVICE_ACCOUNT_KEY (JSON) OR GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY.");
   }
 
-  // Check if it's base64 encoded and clean it
-  authKeyStr = authKeyStr.trim();
+  let authKeyStr = fullKeyVar.trim();
   
   // Remove any potential Byte Order Mark (BOM) or non-printable characters at the start
   authKeyStr = authKeyStr.replace(/^\uFEFF/, '').replace(/^[^\x20-\x7E]+/, '');
 
+  // Handle base64 encoded JSON
   if (!authKeyStr.startsWith('{')) {
     try {
       const decoded = Buffer.from(authKeyStr, 'base64').toString('utf8');
@@ -196,41 +307,42 @@ function getGoogleCredentials() {
   }
 
   try {
-    // Try parsing directly
+    // If it's still not JSON but we have an email, maybe the key itself is the private key
+    if (!authKeyStr.startsWith('{') && clientEmail) {
+      return {
+        client_email: clientEmail.trim(),
+        private_key: cleanKey(authKeyStr),
+      };
+    }
+
     const credentials = JSON.parse(authKeyStr);
     
-    // Fix private key newlines if they are escaped as literal "\n"
     if (credentials.private_key && typeof credentials.private_key === 'string') {
-      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+      credentials.private_key = cleanKey(credentials.private_key);
+      
+      // Validate key format early
+      try {
+        crypto.createPrivateKey(credentials.private_key);
+      } catch (e: any) {
+        console.error(`[Google Auth] Private key validation failed: ${e.message}`);
+        // We don't throw here to allow Method 1 to try its own validation if this was Method 2
+      }
     }
     
     if (!credentials.client_email || !credentials.private_key) {
-      // If JSON is invalid but we have individual variables, try those as last resort
-      if (clientEmail && privateKey) {
-         return {
-           client_email: clientEmail.trim(),
-           private_key: privateKey.trim().replace(/\\n/g, '\n'),
-         };
-      }
       throw new Error("Credentials JSON is missing 'client_email' or 'private_key'.");
     }
     
+    // Log basic info for debugging (safe)
+    const key = credentials.private_key;
+    console.log(`[Google Auth] Email: ${credentials.client_email}, Key Length: ${key.length}, Key Shape: ${key.substring(0, 27)}...${key.substring(key.length - 25)}`);
+
     return credentials;
   } catch (e: any) {
     if (e.message.includes("Credentials JSON is missing")) throw e;
     
-    // Last ditch effort: maybe the key itself IS the private key and we have the email
-    if (clientEmail && authKeyStr && !authKeyStr.startsWith('{')) {
-      return {
-        client_email: clientEmail.trim(),
-        private_key: authKeyStr.trim().replace(/\\n/g, '\n'),
-      };
-    }
-
     const firstChars = authKeyStr.substring(0, 30).replace(/\n/g, '\\n');
-    const charCodes = Array.from(authKeyStr.substring(0, 5)).map(c => c.charCodeAt(0)).join(', ');
-    
-    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY: ${e.message}. The key starts with: "${firstChars}..." (Char codes: ${charCodes}). Ensure you pasted the FULL JSON content starting with { and ending with }.`);
+    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY: ${e.message}. The key starts with: "${firstChars}...". Ensure you pasted the FULL JSON content.`);
   }
 }
 
@@ -400,10 +512,14 @@ app.post("/api/submit-enquiry", async (req, res) => {
 
     res.json({ success: true, message: `Saved in tab: ${tabName}`, enquiryId });
   } catch (error: any) {
-    console.error("Submission error:", error);
+    console.error(`[Submission Error] Error: ${error.message}`);
     let msg = error.message;
     if (msg.includes("Requested entity was not found")) {
       msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings and ensure the Service Account has 'Editor' access to the sheet.";
+    } else if (msg.includes("unsupported")) {
+      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
+    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
+      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
     }
     res.status(500).json({ success: false, message: msg });
   }
@@ -417,7 +533,16 @@ app.get("/api/enquiry/:id", async (req, res) => {
   
   try {
     const credentials = getGoogleCredentials();
-    const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
+    
+    // Basic validation before passing to GoogleAuth
+    if (!credentials.private_key.includes('-----BEGIN')) {
+       throw new Error("Private key is missing PEM headers (-----BEGIN PRIVATE KEY-----). Please check your GOOGLE_PRIVATE_KEY environment variable.");
+    }
+
+    const auth = new google.auth.GoogleAuth({ 
+      credentials, 
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"] 
+    });
     const sheets = google.sheets({ version: "v4", auth });
 
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
@@ -463,9 +588,14 @@ app.get("/api/enquiry/:id", async (req, res) => {
     }
     res.status(404).json({ error: "Enquiry not found" });
   } catch (error: any) {
+    console.error(`[Enquiry Error] ID: ${id}, Error: ${error.message}`);
     let msg = error.message;
     if (msg.includes("Requested entity was not found")) {
       msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings.";
+    } else if (msg.includes("unsupported")) {
+      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
+    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
+      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
     }
     res.status(500).json({ error: msg });
   }
@@ -510,9 +640,14 @@ app.post("/api/update-enquiry", async (req, res) => {
 
     res.json({ success: true });
   } catch (error: any) {
+    console.error(`[Update Error] ID: ${id}, Error: ${error.message}`);
     let msg = error.message;
     if (msg.includes("Requested entity was not found")) {
       msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings.";
+    } else if (msg.includes("unsupported")) {
+      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
+    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
+      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
     }
     res.status(500).json({ error: msg });
   }
