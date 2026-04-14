@@ -496,12 +496,48 @@ app.post("/api/submit-enquiry", async (req, res) => {
       });
     }
 
-    await sheets.spreadsheets.values.append({
+    const appendResponse = await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `'${tabName}'!A:R`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: rowsToAppend },
     });
+
+    // Merge the Supplier Response Link cells (Column R) for the new rows
+    try {
+      const updatedRange = appendResponse.data.updates?.updatedRange; // e.g., "Sheet1!A10:R11"
+      if (updatedRange && items.length > 1) {
+        const match = updatedRange.match(/!A(\d+):R(\d+)/);
+        if (match) {
+          const startRow = parseInt(match[1]) - 1; // 0-indexed
+          const endRow = parseInt(match[2]); // exclusive
+          
+          const sheetId = spreadsheet.data.sheets?.find(s => s.properties?.title === tabName)?.properties?.sheetId;
+          
+          if (sheetId !== undefined) {
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId,
+              requestBody: {
+                requests: [{
+                  mergeCells: {
+                    range: {
+                      sheetId,
+                      startRowIndex: startRow,
+                      endRowIndex: endRow,
+                      startColumnIndex: 17, // Column R
+                      endColumnIndex: 18
+                    },
+                    mergeType: "MERGE_ALL"
+                  }
+                }]
+              }
+            });
+          }
+        }
+      }
+    } catch (mergeErr) {
+      console.warn("Could not merge cells:", mergeErr);
+    }
 
     // Send Email
     try {
@@ -513,15 +549,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
     res.json({ success: true, message: `Saved ${items.length} items in tab: ${tabName}`, enquiryId: baseEnquiryId });
   } catch (error: any) {
     console.error(`[Submission Error] Error: ${error.message}`);
-    let msg = error.message;
-    if (msg.includes("Requested entity was not found")) {
-      msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings and ensure the Service Account has 'Editor' access to the sheet.";
-    } else if (msg.includes("unsupported")) {
-      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
-    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
-      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
-    }
-    res.status(500).json({ success: false, message: msg });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -531,6 +559,8 @@ app.get("/api/enquiry/:id", async (req, res) => {
   const rawSpreadsheetId = process.env.GOOGLE_SHEET_ID || "1JP1tkeyW314TC5wn8yAQ504D745yx5XwgnY72TqSTDo";
   const spreadsheetId = getSpreadsheetId(rawSpreadsheetId);
   
+  console.log(`[Enquiry Fetch] Searching for ID: ${id}`);
+
   try {
     const credentials = getGoogleCredentials();
     const auth = new google.auth.GoogleAuth({ 
@@ -551,16 +581,24 @@ app.get("/api/enquiry/:id", async (req, res) => {
       const rows = response.data.values || [];
       
       // Find all rows that match the base ID or have the base ID as a prefix
-      const matchingRows = rows.filter(row => row[0] === id || row[0]?.startsWith(`${id}-`));
+      // Use trim() and case-insensitive check for robustness
+      const matchingRows = rows.filter(row => {
+        const rowId = (row[0] || "").toString().trim();
+        const searchId = id.trim();
+        return rowId === searchId || rowId.startsWith(`${searchId}-`);
+      });
       
       if (matchingRows.length > 0) {
+        console.log(`[Enquiry Fetch] Found ${matchingRows.length} rows in sheet: ${title}`);
         const firstRow = matchingRows[0];
+        
+        // Map items from columns 9, 10, 11, 16 (Color, Qty, Size, Attachment)
         const items = matchingRows.map(row => ({
           id: row[0],
-          color: row[9],
-          quantity: row[10],
-          widthSize: row[11],
-          attachments: row[16]
+          color: row[9] || "",
+          quantity: row[10] || "",
+          widthSize: row[11] || "",
+          attachments: row[16] || ""
         }));
 
         return res.json({
@@ -569,16 +607,24 @@ app.get("/api/enquiry/:id", async (req, res) => {
           date: firstRow[2],
           email: firstRow[3],
           enquiryType: firstRow[4],
-          supplierName: firstRow[18] || firstRow[5],
+          // Original Enquiry Details (Columns 5-15)
+          supplierName: firstRow[5],
           customerName: firstRow[6],
-          articleNumber: firstRow[19] || firstRow[7],
+          articleNumber: firstRow[7],
           description: firstRow[8],
-          composition: firstRow[20] || firstRow[12],
-          gsm: firstRow[21] || firstRow[13],
-          finish: firstRow[24] || firstRow[14],
+          composition: firstRow[12],
+          gsm: firstRow[13],
+          finish: firstRow[14],
           remark: firstRow[15],
+          // Supplier Response Fields (Columns 18-28)
+          respSupplierName: firstRow[18] || "",
+          respArticleNumber: firstRow[19] || "",
+          respComposition: firstRow[20] || "",
+          respGsm: firstRow[21] || "",
           moq: firstRow[22] || "",
           mcq: firstRow[23] || "",
+          respFinish: firstRow[24] || "",
+          respWidthSize: firstRow[25] || "",
           price: firstRow[26] || "",
           deliveryTime: firstRow[27] || "",
           supplierRemark: firstRow[28] || "",
@@ -587,6 +633,7 @@ app.get("/api/enquiry/:id", async (req, res) => {
         });
       }
     }
+    console.warn(`[Enquiry Fetch] ID not found: ${id}`);
     res.status(404).json({ error: "Enquiry not found" });
   } catch (error: any) {
     console.error(`[Enquiry Error] ID: ${id}, Error: ${error.message}`);

@@ -457,14 +457,14 @@ function SupplierResponseForm() {
       .then(data => {
         setEnquiry(data);
         setFormData({
-          supplierName: data.supplierName || '',
-          articleNumber: data.articleNumber || '',
-          composition: data.composition || '',
-          gsm: data.gsm || '',
+          supplierName: data.respSupplierName || data.supplierName || '',
+          articleNumber: data.respArticleNumber || data.articleNumber || '',
+          composition: data.respComposition || data.composition || '',
+          gsm: data.respGsm || data.gsm || '',
           moq: data.moq || '',
           mcq: data.mcq || '',
-          finish: data.finish || '',
-          widthSize: data.widthSize || '',
+          finish: data.respFinish || data.finish || '',
+          widthSize: data.respWidthSize || '',
           price: data.price || '',
           deliveryTime: data.deliveryTime || '',
           remark: data.supplierRemark || ''
@@ -488,7 +488,7 @@ function SupplierResponseForm() {
       const res = await fetch('/api/update-enquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, id, tabName: enquiry.tabName, rowIndex: enquiry.rowIndex }),
+        body: JSON.stringify({ ...formData, id, tabName: enquiry.tabName }),
       });
       if (res.ok) setStatus('success');
       else setStatus('error');
