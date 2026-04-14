@@ -350,8 +350,8 @@ function getGoogleCredentials() {
 app.post("/api/submit-enquiry", async (req, res) => {
   const { 
     dateOfEnquiry, description, customerName, email: manualEmail, 
-    articleNumber, quantity, enquiryType, supplierName, color, 
-    widthSize, composition, gsm, finish, attachments 
+    articleNumber, enquiryType, supplierName, composition, gsm, 
+    finish, remark, items 
   } = req.body;
   
   const session = req as any;
@@ -359,7 +359,7 @@ app.post("/api/submit-enquiry", async (req, res) => {
   const emailToLog = (manualEmail || user?.email || "Anonymous").trim().toLowerCase();
   const rawSpreadsheetId = process.env.GOOGLE_SHEET_ID || "1JP1tkeyW314TC5wn8yAQ504D745yx5XwgnY72TqSTDo";
   const spreadsheetId = getSpreadsheetId(rawSpreadsheetId);
-  const enquiryId = uuidv4();
+  const baseEnquiryId = uuidv4();
 
   try {
     const credentials = getGoogleCredentials();
@@ -374,50 +374,81 @@ app.post("/api/submit-enquiry", async (req, res) => {
     const sheets = google.sheets({ version: "v4", auth });
     const drive = google.drive({ version: "v3", auth });
 
-    // Upload attachments to Google Drive
-    const uploadedLinks = [];
-    if (attachments && attachments.length > 0) {
-      for (const file of attachments) {
-        try {
-          const fileMetadata = {
-            name: `${enquiryId}_${file.name}`,
-            parents: ['1s7CfBnpuuxQ2cIzLqAZ9ss9Z5goMCZ_4'], // New Shared Drive folder ID
-          };
-          const media = {
-            mimeType: file.type,
-            body: Readable.from(Buffer.from(file.content, 'base64')),
-          };
-          const driveFile = await drive.files.create({
-            requestBody: fileMetadata,
-            media: media,
-            fields: 'id, webViewLink',
-            supportsAllDrives: true,
-          } as any);
-          
-          // Make file public
+    // Process each item
+    const rowsToAppend = [];
+    const istTimestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    const baseUrl = process.env.APP_URL || "https://order-enquiry-form-soie.vercel.app";
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const enquiryId = items.length > 1 ? `${baseEnquiryId}-${i + 1}` : baseEnquiryId;
+      const uploadedLinks = [];
+
+      // Upload attachments for this item
+      if (item.attachments && item.attachments.length > 0) {
+        for (const file of item.attachments) {
           try {
-            await drive.permissions.create({
-              fileId: driveFile.data.id!,
-              requestBody: {
-                role: 'reader',
-                type: 'anyone',
-              },
+            const fileMetadata = {
+              name: `${enquiryId}_${file.name}`,
+              parents: ['1s7CfBnpuuxQ2cIzLqAZ9ss9Z5goMCZ_4'],
+            };
+            const media = {
+              mimeType: file.type,
+              body: Readable.from(Buffer.from(file.content, 'base64')),
+            };
+            const driveFile = await drive.files.create({
+              requestBody: fileMetadata,
+              media: media,
+              fields: 'id, webViewLink',
               supportsAllDrives: true,
             } as any);
-          } catch (permErr) {
-            console.warn("Could not set public permissions:", permErr);
+            
+            try {
+              await drive.permissions.create({
+                fileId: driveFile.data.id!,
+                requestBody: { role: 'reader', type: 'anyone' },
+                supportsAllDrives: true,
+              } as any);
+            } catch (permErr) {
+              console.warn("Could not set public permissions:", permErr);
+            }
+            
+            uploadedLinks.push(driveFile.data.webViewLink || `https://drive.google.com/file/d/${driveFile.data.id}/view`);
+          } catch (uploadErr: any) {
+            console.error("File upload failed:", uploadErr);
+            uploadedLinks.push(`Error: ${file.name} (${uploadErr.message})`);
           }
-          
-          uploadedLinks.push(driveFile.data.webViewLink || `https://drive.google.com/file/d/${driveFile.data.id}/view`);
-        } catch (uploadErr: any) {
-          console.error("File upload failed:", uploadErr);
-          let errorMsg = uploadErr.message;
-          if (errorMsg.includes("storage quota")) {
-            errorMsg = "Service Account storage quota exceeded. IMPORTANT: Please move the destination folder to a 'Shared Drive' (Team Drive) and add the Service Account as a member to it.";
-          }
-          uploadedLinks.push(`Error: ${file.name} (${errorMsg})`);
         }
       }
+
+      const attachmentLinks = uploadedLinks.map(link => {
+        if (link.startsWith('http')) return `=HYPERLINK("${link}", "View Attachment")`;
+        return link;
+      }).join(", ") || "";
+
+      // Use baseEnquiryId for the link so all rows in a submission share one form
+      const supplierLink = `${baseUrl}/supplier-response/${baseEnquiryId}`;
+
+      rowsToAppend.push([
+        enquiryId, 
+        istTimestamp, 
+        dateOfEnquiry, 
+        emailToLog, 
+        enquiryType, 
+        supplierName, 
+        customerName, 
+        articleNumber, 
+        description, // New Description field after Article Number
+        item.color, 
+        item.quantity, 
+        item.widthSize, 
+        composition, 
+        gsm, 
+        finish, 
+        remark, // Renamed from description
+        attachmentLinks,
+        `=HYPERLINK("${supplierLink}", "Open Response Form")`
+      ]);
     }
 
     // Routing Logic
@@ -446,8 +477,8 @@ app.post("/api/submit-enquiry", async (req, res) => {
 
     const headers = [
       "ID", "Timestamp", "Date", "Email Address", "Type of Enquiry", "Name of Supplier", 
-      "Customer Name", "Article Number", "Color", "Quantity", "Width / Size", 
-      "Composition", "GSM", "Finish", "Description", "Attachment", 
+      "Customer Name", "Article Number", "Description", "Color", "Quantity", "Width / Size", 
+      "Composition", "GSM", "Finish", "Remark", "Attachment", 
       "Supplier Response Link", 
       "Supplier Name", "Article Number", "Composition", "GSM", "MOQ", "MCQ", "Finish", "Width / Size", "Price", "Delivery Time", "Remark"
     ];
@@ -459,58 +490,27 @@ app.post("/api/submit-enquiry", async (req, res) => {
       });
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'${tabName}'!A1:AB1`,
+        range: `'${tabName}'!A1:AC1`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [headers] }
       });
     }
 
-    const istTimestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-    const attachmentLinks = uploadedLinks.map(link => {
-      if (link.startsWith('http')) {
-        return `=HYPERLINK("${link}", "View Attachment")`;
-      }
-      return link;
-    }).join(", ") || "";
-    
-    const baseUrl = process.env.APP_URL || "https://order-enquiry-form-soie.vercel.app";
-    const supplierLink = `${baseUrl}/supplier-response/${enquiryId}`;
-
-    const rowData = [
-      enquiryId, 
-      istTimestamp, 
-      dateOfEnquiry, 
-      emailToLog, 
-      enquiryType, 
-      supplierName, 
-      customerName, 
-      articleNumber, 
-      color, 
-      quantity, 
-      widthSize, 
-      composition, 
-      gsm, 
-      finish, 
-      description, 
-      attachmentLinks,
-      `=HYPERLINK("${supplierLink}", "Open Response Form")`
-    ];
-
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `'${tabName}'!A:Q`,
+      range: `'${tabName}'!A:R`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [rowData] },
+      requestBody: { values: rowsToAppend },
     });
 
     // Send Email
     try {
-      await sendNotificationEmail(req.body, emailToLog, enquiryId, tabName);
+      await sendNotificationEmail(req.body, emailToLog, baseEnquiryId, tabName);
     } catch (emailError) {
       console.error("Email failed but data saved:", emailError);
     }
 
-    res.json({ success: true, message: `Saved in tab: ${tabName}`, enquiryId });
+    res.json({ success: true, message: `Saved ${items.length} items in tab: ${tabName}`, enquiryId: baseEnquiryId });
   } catch (error: any) {
     console.error(`[Submission Error] Error: ${error.message}`);
     let msg = error.message;
@@ -533,12 +533,6 @@ app.get("/api/enquiry/:id", async (req, res) => {
   
   try {
     const credentials = getGoogleCredentials();
-    
-    // Basic validation before passing to GoogleAuth
-    if (!credentials.private_key.includes('-----BEGIN')) {
-       throw new Error("Private key is missing PEM headers (-----BEGIN PRIVATE KEY-----). Please check your GOOGLE_PRIVATE_KEY environment variable.");
-    }
-
     const auth = new google.auth.GoogleAuth({ 
       credentials, 
       scopes: ["https://www.googleapis.com/auth/spreadsheets"] 
@@ -552,58 +546,62 @@ app.get("/api/enquiry/:id", async (req, res) => {
       const title = sheet.properties?.title;
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `'${title}'!A:AB`,
+        range: `'${title}'!A:AC`,
       });
       const rows = response.data.values || [];
-      const rowIndex = rows.findIndex(row => row[0] === id);
       
-      if (rowIndex !== -1) {
-        const row = rows[rowIndex];
-        return res.json({
+      // Find all rows that match the base ID or have the base ID as a prefix
+      const matchingRows = rows.filter(row => row[0] === id || row[0]?.startsWith(`${id}-`));
+      
+      if (matchingRows.length > 0) {
+        const firstRow = matchingRows[0];
+        const items = matchingRows.map(row => ({
           id: row[0],
-          timestamp: row[1],
-          date: row[2],
-          email: row[3],
-          enquiryType: row[4],
-          supplierName: row[17] || row[5], // Use supplier response name if exists, else original
-          customerName: row[6],
-          articleNumber: row[18] || row[7],
-          color: row[8],
-          quantity: row[9],
-          widthSize: row[24] || row[10],
-          composition: row[19] || row[11],
-          gsm: row[20] || row[12],
-          finish: row[23] || row[13],
-          description: row[14],
-          attachments: row[15],
-          moq: row[21] || "",
-          mcq: row[22] || "",
-          price: row[25] || "",
-          deliveryTime: row[26] || "",
-          remark: row[27] || "",
+          color: row[9],
+          quantity: row[10],
+          widthSize: row[11],
+          attachments: row[16]
+        }));
+
+        return res.json({
+          id: id,
+          timestamp: firstRow[1],
+          date: firstRow[2],
+          email: firstRow[3],
+          enquiryType: firstRow[4],
+          supplierName: firstRow[18] || firstRow[5],
+          customerName: firstRow[6],
+          articleNumber: firstRow[19] || firstRow[7],
+          description: firstRow[8],
+          composition: firstRow[20] || firstRow[12],
+          gsm: firstRow[21] || firstRow[13],
+          finish: firstRow[24] || firstRow[14],
+          remark: firstRow[15],
+          moq: firstRow[22] || "",
+          mcq: firstRow[23] || "",
+          price: firstRow[26] || "",
+          deliveryTime: firstRow[27] || "",
+          supplierRemark: firstRow[28] || "",
           tabName: title,
-          rowIndex: rowIndex + 1
+          items: items
         });
       }
     }
     res.status(404).json({ error: "Enquiry not found" });
   } catch (error: any) {
     console.error(`[Enquiry Error] ID: ${id}, Error: ${error.message}`);
-    let msg = error.message;
-    if (msg.includes("Requested entity was not found")) {
-      msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings.";
-    } else if (msg.includes("unsupported")) {
-      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
-    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
-      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
-    }
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: error.message });
   }
 });
 
 // Update Enquiry with Supplier Response
 app.post("/api/update-enquiry", async (req, res) => {
-  const { id, tabName, rowIndex, supplierName, articleNumber, composition, gsm, moq, mcq, finish, widthSize, price, deliveryTime, remark } = req.body;
+  const { 
+    id, tabName, supplierName, articleNumber, 
+    composition, gsm, moq, mcq, finish, widthSize, 
+    price, deliveryTime, remark 
+  } = req.body;
+  
   const rawSpreadsheetId = process.env.GOOGLE_SHEET_ID || "1JP1tkeyW314TC5wn8yAQ504D745yx5XwgnY72TqSTDo";
   const spreadsheetId = getSpreadsheetId(rawSpreadsheetId);
 
@@ -612,44 +610,44 @@ app.post("/api/update-enquiry", async (req, res) => {
     const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
     const sheets = google.sheets({ version: "v4", auth });
 
-    // Update the row
-    // Original fields: A-P
-    // Supplier Response fields: R-AB
-    // R: supplierName, S: articleNumber, T: composition, U: gsm, V: moq, W: mcq, X: finish, Y: widthSize, Z: price, AA: deliveryTime, AB: remark
+    // Find all rows to update
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${tabName}'!A:A`,
+    });
+    const rows = response.data.values || [];
+    const indicesToUpdate = [];
     
+    for (let i = 0; i < rows.length; i++) {
+      const rowId = rows[i][0];
+      if (rowId === id || rowId?.startsWith(`${id}-`)) {
+        indicesToUpdate.push(i + 1);
+      }
+    }
+
+    if (indicesToUpdate.length === 0) {
+      return res.status(404).json({ error: "No matching rows found to update" });
+    }
+
+    // Update each row
     const supplierData = [
-      supplierName || "", 
-      articleNumber || "", 
-      composition || "", 
-      gsm || "", 
-      moq || "", 
-      mcq || "", 
-      finish || "", 
-      widthSize || "", 
-      price || "", 
-      deliveryTime || "", 
-      remark || ""
+      supplierName, articleNumber, composition, gsm, 
+      moq, mcq, finish, widthSize, price, deliveryTime, remark
     ];
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${tabName}'!R${rowIndex}:AB${rowIndex}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [supplierData] }
-    });
+    for (const rowIndex of indicesToUpdate) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${tabName}'!S${rowIndex}:AC${rowIndex}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [supplierData] }
+      });
+    }
 
     res.json({ success: true });
   } catch (error: any) {
     console.error(`[Update Error] ID: ${id}, Error: ${error.message}`);
-    let msg = error.message;
-    if (msg.includes("Requested entity was not found")) {
-      msg = "Spreadsheet ID not found or inaccessible. Please verify GOOGLE_SHEET_ID in Settings.";
-    } else if (msg.includes("unsupported")) {
-      msg = "Google Authentication Error: The private key format is unsupported. Please ensure you have pasted the FULL private key including headers and newlines in GOOGLE_PRIVATE_KEY. If you are on Vercel, try adding NODE_OPTIONS=--openssl-legacy-provider to your environment variables.";
-    } else if (msg.toLowerCase().includes("permission denied") || msg.toLowerCase().includes("insufficient permissions")) {
-      msg = `Access Denied: Please ensure you have shared the Google Sheet with the Service Account email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || 'your service account email'} and given it 'Editor' permissions.`;
-    }
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: error.message });
   }
 });
 

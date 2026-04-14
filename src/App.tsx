@@ -36,19 +36,19 @@ interface User {
 function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, handleLogin: () => void, handleLogout: () => void }) {
   const [formData, setFormData] = useState({
     dateOfEnquiry: new Date().toISOString().split('T')[0],
-    description: '',
     customerName: '',
     articleNumber: '',
-    quantity: '',
+    description: '', // New field after Article Number
     email: user?.email || '',
     enquiryType: '',
     supplierName: '',
-    color: '',
-    widthSize: '',
     composition: '',
     gsm: '',
     finish: '',
-    attachments: [] as { name: string, size: number, type: string }[]
+    remark: '', // Renamed from description
+    items: [
+      { color: '', quantity: '', widthSize: '', attachments: [] as { name: string, size: number, type: string, content: string }[] }
+    ]
   });
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -79,19 +79,17 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
         setMessage(data.message);
         setFormData({
           dateOfEnquiry: new Date().toISOString().split('T')[0],
-          description: '',
           customerName: '',
           articleNumber: '',
-          quantity: '',
+          description: '',
           email: user?.email || '',
           enquiryType: '',
           supplierName: '',
-          color: '',
-          widthSize: '',
           composition: '',
           gsm: '',
           finish: '',
-          attachments: []
+          remark: '',
+          items: [{ color: '', quantity: '', widthSize: '', attachments: [] }]
         });
       } else {
         setStatus('error');
@@ -108,7 +106,29 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const addItem = () => {
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, { color: '', quantity: '', widthSize: '', attachments: [] }]
+    }));
+  };
+
+  const removeItem = (index: number) => {
+    if (formData.items.length <= 1) return;
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleItemChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const newItems = [...formData.items];
+    (newItems[index] as any)[name] = value;
+    setFormData(prev => ({ ...prev, items: newItems }));
+  };
+
+  const handleItemFileChange = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
       
@@ -129,15 +149,14 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
       });
 
       const processedFiles = await Promise.all(filePromises);
-      setFormData(prev => ({
-        ...prev,
-        attachments: [...prev.attachments, ...processedFiles]
-      }));
+      const newItems = [...formData.items];
+      newItems[index].attachments = [...newItems[index].attachments, ...processedFiles];
+      setFormData(prev => ({ ...prev, items: newItems }));
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-4xl mx-auto px-4">
       {/* Header Image */}
       <div className="w-full h-36 rounded-t-xl overflow-hidden shadow-sm mb-0 border border-slate-200 border-b-0 relative group bg-pink-50">
         <img 
@@ -246,33 +265,113 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
             </div>
           </div>
 
-          {/* Row 4: Color & Qty */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-              <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
-                <Palette className="w-4 h-4 mr-2 text-indigo-500" />
-                Color
-              </label>
-              <input type="text" name="color" required placeholder="Color" value={formData.color} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-              <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
-                <Layers className="w-4 h-4 mr-2 text-indigo-500" />
-                Quantity
-              </label>
-              <input type="text" name="quantity" required placeholder="Quantity" value={formData.quantity} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
+          {/* New Description Field after Article Number */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+            <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
+              <FileText className="w-4 h-4 mr-2 text-indigo-500" />
+              Description
+            </label>
+            <textarea name="description" required rows={2} placeholder="Description of Article..." value={formData.description} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
           </div>
 
-          {/* Row 5: Size & Composition */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-              <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
-                <Maximize className="w-4 h-4 mr-2 text-indigo-500" />
-                Width / Size
+          {/* Multiple Items Table (Color, Qty, Size, Attachment) - MOVED HERE */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+            <div className="flex justify-between items-center mb-4">
+              <label className="flex items-center text-sm font-bold text-slate-800">
+                <Layers className="w-4 h-4 mr-2 text-indigo-500" />
+                Item Details (Multiple)
               </label>
-              <input type="text" name="widthSize" required placeholder="Width / Size" value={formData.widthSize} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
+              <button 
+                type="button" 
+                onClick={addItem}
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center gap-1"
+              >
+                <Hash className="w-3 h-3" /> Add Row
+              </button>
             </div>
+            
+            <table className="w-full min-w-[600px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-500">
+                  <th className="text-left pb-2 font-semibold">Color</th>
+                  <th className="text-left pb-2 font-semibold">Quantity</th>
+                  <th className="text-left pb-2 font-semibold">Width / Size</th>
+                  <th className="text-left pb-2 font-semibold">Attachments</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {formData.items.map((item, index) => (
+                  <tr key={index}>
+                    <td className="py-3 pr-2">
+                      <input 
+                        type="text" 
+                        name="color" 
+                        required 
+                        placeholder="Color" 
+                        value={item.color} 
+                        onChange={(e) => handleItemChange(index, e)} 
+                        className="w-full p-2 rounded border border-slate-200 outline-none focus:ring-1 focus:ring-indigo-500" 
+                      />
+                    </td>
+                    <td className="py-3 pr-2">
+                      <input 
+                        type="text" 
+                        name="quantity" 
+                        required 
+                        placeholder="Qty" 
+                        value={item.quantity} 
+                        onChange={(e) => handleItemChange(index, e)} 
+                        className="w-full p-2 rounded border border-slate-200 outline-none focus:ring-1 focus:ring-indigo-500" 
+                      />
+                    </td>
+                    <td className="py-3 pr-2">
+                      <input 
+                        type="text" 
+                        name="widthSize" 
+                        required 
+                        placeholder="Size" 
+                        value={item.widthSize} 
+                        onChange={(e) => handleItemChange(index, e)} 
+                        className="w-full p-2 rounded border border-slate-200 outline-none focus:ring-1 focus:ring-indigo-500" 
+                      />
+                    </td>
+                    <td className="py-3 pr-2">
+                      <div className="flex flex-col gap-1">
+                        <input 
+                          type="file" 
+                          multiple 
+                          onChange={(e) => handleItemFileChange(index, e)} 
+                          className="text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-semibold file:bg-indigo-50 file:text-indigo-700" 
+                        />
+                        {item.attachments.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {item.attachments.map((f, fi) => (
+                              <span key={fi} className="text-[9px] bg-slate-100 px-1 rounded border border-slate-200 truncate max-w-[80px]">{f.name}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 text-center">
+                      {formData.items.length > 1 && (
+                        <button 
+                          type="button" 
+                          onClick={() => removeItem(index)}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <AlertCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Row 5: Composition & GSM */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
               <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
                 <Box className="w-4 h-4 mr-2 text-indigo-500" />
@@ -280,10 +379,6 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
               </label>
               <input type="text" name="composition" required placeholder="Composition" value={formData.composition} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
-          </div>
-
-          {/* Row 6: GSM & Finish */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
               <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
                 <Hash className="w-4 h-4 mr-2 text-indigo-500" />
@@ -291,38 +386,24 @@ function EnquiryForm({ user, handleLogin, handleLogout }: { user: User | null, h
               </label>
               <input type="text" name="gsm" required placeholder="GSM" value={formData.gsm} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-              <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
-                <FileText className="w-4 h-4 mr-2 text-indigo-500" />
-                Finish
-              </label>
-              <input type="text" name="finish" required placeholder="Finish" value={formData.finish} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
           </div>
 
-          {/* Description */}
+          {/* Row 6: Finish */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
             <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
               <FileText className="w-4 h-4 mr-2 text-indigo-500" />
-              Description
+              Finish
             </label>
-            <textarea name="description" required rows={3} placeholder="Details..." value={formData.description} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+            <input type="text" name="finish" required placeholder="Finish" value={formData.finish} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
 
-          {/* Attachments */}
+          {/* Remark (Renamed from Description) */}
           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
             <label className="flex items-center text-sm font-semibold text-slate-700 mb-2">
-              <Paperclip className="w-4 h-4 mr-2 text-indigo-500" />
-              Attachments (Multiple)
+              <FileText className="w-4 h-4 mr-2 text-indigo-500" />
+              Remark
             </label>
-            <input type="file" multiple onChange={handleFileChange} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-            {formData.attachments.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {formData.attachments.map((f: { name: string, size: number, type: string }, i) => (
-                  <span key={i} className="px-2 py-1 bg-slate-100 text-xs rounded border border-slate-200">{f.name}</span>
-                ))}
-              </div>
-            )}
+            <textarea name="remark" rows={3} placeholder="Any additional remarks..." value={formData.remark} onChange={handleChange} className="w-full p-2.5 rounded-lg border border-slate-300 outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
           </div>
 
           <AnimatePresence>
@@ -386,7 +467,7 @@ function SupplierResponseForm() {
           widthSize: data.widthSize || '',
           price: data.price || '',
           deliveryTime: data.deliveryTime || '',
-          remark: data.remark || ''
+          remark: data.supplierRemark || ''
         });
       })
       .catch(err => {
@@ -479,53 +560,84 @@ function SupplierResponseForm() {
       ) : (
         <div className="space-y-4 pb-12">
           {/* Read-only Enquiry Details */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
             <h3 className="font-bold text-slate-800 border-b pb-2 flex items-center">
               <FileText className="w-4 h-4 mr-2 text-indigo-500" />
               Original Enquiry Details
             </h3>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <p><span className="text-slate-500 font-medium">Date:</span> {enquiry.date}</p>
-              <p><span className="text-slate-500 font-medium">Type:</span> {enquiry.enquiryType}</p>
-              <p><span className="text-slate-500 font-medium">Customer:</span> {enquiry.customerName}</p>
-              <p><span className="text-slate-500 font-medium">Article #:</span> {enquiry.articleNumber}</p>
-              <p><span className="text-slate-500 font-medium">Color:</span> {enquiry.color}</p>
-              <p><span className="text-slate-500 font-medium">Quantity:</span> {enquiry.quantity}</p>
-              <p><span className="text-slate-500 font-medium">Width/Size:</span> {enquiry.widthSize}</p>
-              <p><span className="text-slate-500 font-medium">Composition:</span> {enquiry.composition}</p>
-              <p><span className="text-slate-500 font-medium">GSM:</span> {enquiry.gsm}</p>
-              <p><span className="text-slate-500 font-medium">Finish:</span> {enquiry.finish}</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div className="space-y-2">
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Date:</span> <span className="font-semibold">{enquiry.date}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Type:</span> <span className="font-semibold">{enquiry.enquiryType}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Customer:</span> <span className="font-semibold">{enquiry.customerName}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Article #:</span> <span className="font-semibold">{enquiry.articleNumber}</span></p>
+              </div>
+              <div className="space-y-2">
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Composition:</span> <span className="font-semibold">{enquiry.composition}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">GSM:</span> <span className="font-semibold">{enquiry.gsm}</span></p>
+                <p className="flex justify-between"><span className="text-slate-500 font-medium">Finish:</span> <span className="font-semibold">{enquiry.finish}</span></p>
+              </div>
             </div>
-            {enquiry.attachments && (
-              <div className="pt-3 border-t mt-2">
-                <p className="text-xs text-slate-500 mb-2 font-semibold uppercase tracking-wider">Attachments</p>
-                <div className="flex flex-wrap gap-2">
-                  {enquiry.attachments.split(',').map((link: string, i: number) => {
-                    const cleanLink = link.includes('=HYPERLINK') 
-                      ? link.match(/"([^"]+)"/)?.[1] 
-                      : link.trim();
-                    return (
-                      <a 
-                        key={i} 
-                        href={cleanLink} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="flex items-center text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                      >
-                        <Paperclip className="w-3 h-3 mr-1.5" />
-                        View File {i + 1}
-                      </a>
-                    );
-                  })}
+
+            {/* Items Table */}
+            {enquiry.items && enquiry.items.length > 0 && (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 uppercase font-bold">
+                    <tr>
+                      <th className="px-4 py-2 border-b">Color</th>
+                      <th className="px-4 py-2 border-b">Quantity</th>
+                      <th className="px-4 py-2 border-b">Width / Size</th>
+                      <th className="px-4 py-2 border-b">Attachments</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {enquiry.items.map((item: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 font-medium">{item.color}</td>
+                        <td className="px-4 py-2">{item.quantity}</td>
+                        <td className="px-4 py-2">{item.widthSize}</td>
+                        <td className="px-4 py-2">
+                          {item.attachments && item.attachments.split(',').map((link: string, li: number) => {
+                            const cleanLink = link.includes('=HYPERLINK') 
+                              ? link.match(/"([^"]+)"/)?.[1] 
+                              : link.trim();
+                            return (
+                              <a 
+                                key={li} 
+                                href={cleanLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center text-indigo-600 hover:text-indigo-800 mr-2"
+                              >
+                                <Paperclip className="w-3 h-3 mr-1" />
+                                File {li + 1}
+                              </a>
+                            );
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {enquiry.description && (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-[10px] text-slate-500 mb-1 font-bold uppercase tracking-wider">Description</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{enquiry.description}</p>
                 </div>
-              </div>
-            )}
-            {enquiry.description && (
-              <div className="pt-3 border-t mt-2">
-                <p className="text-xs text-slate-500 mb-1 font-semibold uppercase tracking-wider">Description</p>
-                <p className="text-sm text-slate-700 leading-relaxed">{enquiry.description}</p>
-              </div>
-            )}
+              )}
+              {enquiry.remark && (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-[10px] text-slate-500 mb-1 font-bold uppercase tracking-wider">Remark</p>
+                  <p className="text-sm text-slate-700 leading-relaxed">{enquiry.remark}</p>
+                </div>
+              )}
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
