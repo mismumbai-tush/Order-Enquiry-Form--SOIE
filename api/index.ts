@@ -185,7 +185,8 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
 
   await transporter.sendMail({
     from: `"${tabName} ${process.env.SMTP_USER}" <${process.env.SMTP_USER}>`,
-    to: 'patilyog345@gmail.com',
+    to: 'tracychi@gmail.com, pooja.vaidya@ginzalimited.com',
+    cc: 'mis.mumbai@ginzalimited.com',
     replyTo: employeeEmail,
     subject: `New Enquiry Submission - ${tabName}`,
     html: htmlContent,
