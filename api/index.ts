@@ -185,7 +185,7 @@ async function sendNotificationEmail(details: any, employeeEmail: string, enquir
 
   await transporter.sendMail({
     from: `"${tabName} ${process.env.SMTP_USER}" <${process.env.SMTP_USER}>`,
-    to: 'tracychi@gmail.com, pooja.vaidya@ginzalimited.com',
+    to: 'tracychi@gmail.com',
     cc: 'mis.mumbai@ginzalimited.com',
     replyTo: employeeEmail,
     subject: `New Enquiry Submission - ${tabName}`,
@@ -275,8 +275,7 @@ function getGoogleCredentials() {
         crypto.createPrivateKey(cleanedKey);
       } catch (e: any) {
         console.error(`[Google Auth] Private key validation failed (Method 1): ${e.message}`);
-      }
-
+    
       return {
         client_email: clientEmail.trim(),
         private_key: cleanedKey,
