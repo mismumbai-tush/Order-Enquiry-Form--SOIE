@@ -275,6 +275,7 @@ function getGoogleCredentials() {
         crypto.createPrivateKey(cleanedKey);
       } catch (e: any) {
         console.error(`[Google Auth] Private key validation failed (Method 1): ${e.message}`);
+      }
     
       return {
         client_email: clientEmail.trim(),
